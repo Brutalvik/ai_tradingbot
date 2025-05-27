@@ -7,13 +7,14 @@ from utils.label_data import clean_data_for_model
 from utils.processing import create_features_and_labels
 
 MODEL_PATH = "models/latest_model.pkl"  # Path to your trained model
-SYMBOL = "DOGE/USDT"
+SYMBOL = "CHILLGUY/USDT"
 INTERVAL = "1m"
 CONFIDENCE_THRESHOLD = 0.6  # Optional: ignore weak signals
 
 def live_predict():
     model = joblib.load(MODEL_PATH)
     print("✅ Model loaded.")
+    print(f"🔍 Monitoring {SYMBOL} at {INTERVAL} interval...")
 
     while True:
         print("📈 Fetching new data...")
@@ -53,13 +54,13 @@ def live_predict():
         # Determine and print the trade action
         if confidence >= CONFIDENCE_THRESHOLD:
             action = "🟢 BUY" if prediction == 1 else "🔴 SELL"
-            print(f"\n🔔 Trade Signal: {action} at ${current_price:.2f} (Confidence: {confidence:.2f}) — {timestamp}\n")
+            print(f"\n🔔 Trade Signal: {action} at ${current_price:.2f} (Confidence: {100*confidence:.2f}%) — {timestamp}\n")
 
             # Optional: insert real trading logic here (e.g., broker API call)
             # place_trade(action, current_price)
 
         else:
-            print(f"❔ Signal too weak. Confidence: {confidence:.2f} < Threshold: {CONFIDENCE_THRESHOLD}. No trade.\n")
+            print(f"❔ Signal too weak. Confidence: {100*confidence:.2f}% < Threshold: {CONFIDENCE_THRESHOLD}. No trade.\n")
 
         time.sleep(60)
 

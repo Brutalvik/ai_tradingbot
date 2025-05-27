@@ -4,7 +4,7 @@ from sklearn.ensemble import RandomForestClassifier
 from utils.fetch_data import fetch_binance_ohlcv
 from utils.processing import create_features_and_labels
 
-SYMBOL = "DOGE/USDT"  # Change to your symbol
+SYMBOL = "CHILLGUY/USDT"  # Change to your symbol
 INTERVAL = "1m"       # 1-minute candles
 LIMIT = 2000          # Number of data points (candles) to fetch
 
