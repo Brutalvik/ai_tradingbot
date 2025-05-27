@@ -21,8 +21,6 @@ def load_model_with_progress(model_path: str):
     loader_thread = threading.Thread(target=load)
     loader_thread.start()
 
-    spinner = ['|', '/', '-', '\\']
-    idx = 0
 
     # Show a rotating progress bar while loading
     with tqdm(total=0, desc="Loading model --> Please wait", bar_format="{desc} {postfix}", colour="cyan") as pbar:
