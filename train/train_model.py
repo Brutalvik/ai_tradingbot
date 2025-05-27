@@ -1,13 +1,14 @@
 import pandas as pd
-from utils.fetch_data import fetch_binance_ohlcv
-from utils.indicators import add_technical_indicators
-from utils.label_data import add_labels
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from xgboost import XGBClassifier
 from joblib import dump
 import os
+
+from utils.fetch_data import fetch_binance_ohlcv
+from utils.indicators import add_technical_indicators
+from utils.label_data import add_labels
 
 def main():
     df = fetch_binance_ohlcv()
@@ -20,7 +21,7 @@ def main():
 
     X_train, X_test, y_train, y_test = train_test_split(features, labels, shuffle=False, test_size=0.2)
 
-    model = XGBClassifier(n_estimators=100, max_depth=5, learning_rate=0.01)
+    model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', base_score=0.5)
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
