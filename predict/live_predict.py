@@ -4,9 +4,10 @@ import joblib
 from utils.fetch_data import fetch_binance_ohlcv
 from utils.indicators import add_technical_indicators
 from utils.label_data import clean_data_for_model
+from utils.processing import create_features_and_labels
 
-MODEL_PATH = "models/model.joblib"
-SYMBOL = "BTC/USDT"
+MODEL_PATH = "models/latest_model.pkl"  # Path to your trained model
+SYMBOL = "DOGE/USDT"
 INTERVAL = "1m"
 CONFIDENCE_THRESHOLD = 0.6  # Optional: ignore weak signals
 
@@ -22,27 +23,16 @@ def live_predict():
             time.sleep(60)
             continue
 
-        df = add_technical_indicators(df)
-        print("🔧 Technical indicators added.")
+        X, _ = create_features_and_labels(df)
+        print(f"🔍 Features created from {len(df)} rows of data.")
 
-        df = clean_data_for_model(df)
-        print("🔧 Data cleaned and prepared for prediction.")
+        # latest = df.tail(1)
+        # if latest.empty:
+        #     print("⚠️ No data available for prediction. Retrying...")
+        #     time.sleep(60)
+        #     continue
 
-        latest = df.tail(1)
-        if latest.empty:
-            print("⚠️ No data available for prediction. Retrying...")
-            time.sleep(60)
-            continue
-
-        latest = clean_data_for_model(latest)
-        print("🔍 Latest data prepared for prediction.")
-
-        latest_numeric = latest.select_dtypes(include=['number']).drop(columns=['open', 'high', 'low', 'close'], errors='ignore')
-        if latest_numeric.empty:
-            print("⚠️ No numeric data available for prediction. Retrying...")
-            time.sleep(60)
-            continue
-
+        latest_numeric = X.tail(1)
         print("🔍 Numeric data extracted for prediction.")
 
         # Make prediction
