@@ -8,6 +8,7 @@ from utils.label_data import clean_data_for_model
 from utils.processing import create_features_and_labels
 import requests
 from datetime import datetime, timedelta
+from models.custom_model import CombinedModel
 
 MODEL_PATH = "models/latest_model.pkl"
 INTERVAL = 60  # 1-minute bars
@@ -25,8 +26,6 @@ def is_valid_symbol(symbol):
         print(f"Error fetching symbols: {e}")
         return False
 
-from datetime import datetime, timedelta
-
 def run_prediction(df, model):
     df = add_technical_indicators(df)
     df = clean_data_for_model(df)
@@ -37,32 +36,38 @@ def run_prediction(df, model):
         print("⚠️ No valid feature row to predict.")
         return
 
-    prediction = model.predict(latest)[0]
+    # Predict action (buy/sell) — classification
+    action_prediction = model.predict(latest)[0]
     confidence = model.predict_proba(latest)[0].max() if hasattr(model, "predict_proba") else 1.0
 
+    # Predict next candle close — regression
+    try:
+        from joblib import load
+        regression_model = load("models/next_close_regressor.pkl")
+        next_close_price = regression_model.predict(latest)[0]
+    except Exception as e:
+        print(f"⚠️ Regression model not found or failed to predict. Using last close. Error: {e}")
+        next_close_price = df.iloc[-1]['close']
+
     current_price = df.iloc[-1]['close']
-    raw_timestamp = df.iloc[-1]['timestamp']
-    current_time = datetime.utcfromtimestamp(raw_timestamp / 1000)
-    action_time = current_time + timedelta(minutes=1)
+    timestamp = df.iloc[-1]['timestamp']
 
     if confidence >= CONFIDENCE_THRESHOLD:
-        action = "🟢 BUY" if prediction == 1 else "🔴 SELL"
-
+        action = "🟢 BUY" if action_prediction == 1 else "🔴 SELL"
         print(f"""
-🔔 LIMIT ORDER ALERT
-----------------------------
-🕒 Prediction Time: {current_time.strftime('%Y-%m-%d %H:%M:%S')} UTC
-📅 Recommended Action Time: {action_time.strftime('%Y-%m-%d %H:%M:%S')} UTC
-📈 Suggested Action: {action}
-💰 Suggested Limit Price: ${current_price:.2f}
-🎯 Confidence Level: {confidence:.2%}
+🔔 Trade Signal: {action}
+📈 Current Price: ${current_price:.2f}
+📅 Time: {timestamp}
+📊 Confidence: {confidence*100:.2f}%
+🔮 Predicted Next Close: ${next_close_price:.2f}
+📌 Suggested Limit {'Buy' if action_prediction == 1 else 'Sell'} at ${next_close_price:.2f}
 """)
     else:
-        print(f"❔ Weak Signal ({confidence:.2%} < {CONFIDENCE_THRESHOLD:.0%}) — No action @ {current_time.strftime('%H:%M:%S')} UTC")
+        print(f"❔ Weak Signal: Confidence {confidence*100:.2f}% < {CONFIDENCE_THRESHOLD}. No action — {timestamp}")
 
 
 def main(symbol):
-    model = joblib.load(MODEL_PATH)
+    model = CombinedModel()
     print("✅ Model loaded.")
 
     if not is_valid_symbol(symbol):
