@@ -5,6 +5,7 @@ import json
 import threading
 import datetime
 import sys
+from utils.ohlcv_buffer import OHLCVBuffer
 
 def start_stream(symbol: str):
     def on_message(ws, message):
@@ -14,6 +15,13 @@ def start_stream(symbol: str):
         timestamp = datetime.datetime.fromtimestamp(data['T'] / 1000.0)
 
         print(f"[{timestamp}] {symbol.upper()} Price: ${trade_price:.6f} | Qty: {quantity}")
+
+        ohlcv_buffer.update(price, quantity, timestamp)
+
+        df = ohlcv_buffer.get_dataframe()
+        if len(df) > 50:
+            # ✅ Call model inference here with df
+            print(df.tail())
 
     def on_error(ws, error):
         print("❌ WebSocket error:", error)
