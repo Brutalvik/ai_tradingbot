@@ -11,12 +11,24 @@ from datetime import datetime, timedelta
 from models.custom_model import CombinedModel
 
 MODEL_PATH = "models/latest_model.pkl"
+REGRESSION_MODEL_PATH = "models/next_close_regressor.pkl"
+BINANCE_API_URL = "https://api.binance.com/api/v3/exchangeInfo"
+
 INTERVAL = 60  # 1-minute bars
 CONFIDENCE_THRESHOLD = 0.6
 
+action_model = joblib.load(MODEL_PATH)
+next_close_model = joblib.load(REGRESSION_MODEL_PATH)
 
 def is_valid_symbol(symbol):
-    url = "https://api.binance.com/api/v3/exchangeInfo"
+    symbol = symbol.upper()
+
+    if '/' in symbol:
+        symbol = symbol.split('/')[0] + 'USDT'  # Convert to USDT pair if needed
+    elif not symbol.endswith('USDT'):
+        symbol += 'USDT'  # Default to USDT pair
+    
+    url = f"{BINANCE_API_URL}?symbol={symbol.upper()}"
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -37,16 +49,14 @@ def run_prediction(df, model):
         return
 
     # Predict action (buy/sell) — classification
-    action_prediction = model.predict(latest)[0]
-    confidence = model.predict_proba(latest)[0].max() if hasattr(model, "predict_proba") else 1.0
+    action_prediction = action_model.predict(latest)[0]
+    confidence = action_model.predict_proba(latest)[0].max() if hasattr(action_model, "predict_proba") else 1.0
 
     # Predict next candle close — regression
     try:
-        from joblib import load
-        regression_model = load("models/next_close_regressor.pkl")
-        next_close_price = regression_model.predict(latest)[0]
+        next_close_price = next_close_model.predict(latest)[0]
     except Exception as e:
-        print(f"⚠️ Regression model not found or failed to predict. Using last close. Error: {e}")
+        print(f"⚠️ Regression model prediction failed. Using last close. Error: {e}")
         next_close_price = df.iloc[-1]['close']
 
     current_price = df.iloc[-1]['close']
@@ -64,6 +74,7 @@ def run_prediction(df, model):
 """)
     else:
         print(f"❔ Weak Signal: Confidence {confidence*100:.2f}% < {CONFIDENCE_THRESHOLD}. No action — {timestamp}")
+
 
 
 def main(symbol):
