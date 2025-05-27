@@ -1,4 +1,14 @@
-def add_labels(df, future_period=5, threshold=0.02):
-    df['future_return'] = df['close'].shift(-future_period) / df['close'] - 1
-    df['label'] = (df['future_return'] > threshold).astype(int)
+def clean_data_for_model(df):
+    # Drop target, future_return, and any datetime columns
+    drop_cols = ['target', 'future_return']
+
+    # Drop 'timestamp' or index if it's datetime
+    if 'timestamp' in df.columns:
+        drop_cols.append('timestamp')
+
+    df = df.drop(columns=drop_cols, errors='ignore')
+
+    # Drop non-numeric columns just in case
+    df = df.select_dtypes(include=['number'])
+
     return df
