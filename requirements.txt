@@ -1,0 +1,8 @@
+ccxt
+pandas
+ta
+scikit-learn
+xgboost
+joblib
+matplotlib
+seaborn
