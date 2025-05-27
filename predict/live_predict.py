@@ -116,7 +116,7 @@ def main(symbol):
             df = ohlcv_buffer.get_dataframe()
             run_prediction(df, model)
         else:
-            print(f"📩 Tick received: price={price} time={timestamp} - no new bar yet.")
+            print(f"🔄 Updated OHLCV buffer. Total bars: {new_length}")
 
     def on_open(ws):
         stream_url = f"{symbol}@trade"
