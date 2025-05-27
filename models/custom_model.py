@@ -3,7 +3,7 @@ import numpy as np
 
 class CombinedModel:
     def __init__(self):
-        self.classifier = joblib.load("models/latest_model.pkl")  # existing model
+        self.classifier = joblib.load("models/BTCUSDT_1m_latest_model")  # existing model
         self.regressor = joblib.load("models/next_close_regressor.pkl")
 
     def predict(self, X):

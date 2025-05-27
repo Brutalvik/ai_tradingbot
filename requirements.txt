@@ -6,3 +6,5 @@ xgboost
 joblib
 matplotlib
 seaborn
+tqdm
+numpy

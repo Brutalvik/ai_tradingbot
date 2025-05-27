@@ -10,7 +10,7 @@ import requests
 from datetime import datetime, timedelta
 from models.custom_model import CombinedModel
 
-MODEL_PATH = "models/latest_model.pkl"
+MODEL_PATH = "models/BTCUSDT_1m_latest_model.pkl"
 REGRESSION_MODEL_PATH = "models/next_close_regressor.pkl"
 BINANCE_API_URL = "https://api.binance.com/api/v3/exchangeInfo"
 

@@ -5,8 +5,6 @@ import joblib
 import pandas as pd
 from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.exceptions import NotFittedError
-from joblib import parallel_backend
 from tqdm.auto import tqdm
 from utils.fetch_data import fetch_binance_ohlcv
 from utils.processing import create_features_and_labels
@@ -40,21 +38,24 @@ def retrain(symbol: str, interval: str = "1m", csv_path: str = None):
 
     # Training model
     n_estimators = 100
-    model = RandomForestClassifier(n_estimators=n_estimators, random_state=42, n_jobs=-1)
+    model = RandomForestClassifier(
+        n_estimators=1,
+        warm_start=True,
+        random_state=42,
+        n_jobs=-1
+    )
 
     print("[INFO] Training model...")
 
     try:
         with tqdm(total=n_estimators, desc="Training Progress", unit="tree", colour="green") as pbar:
-            def update(*args, **kwargs):
+            for i in range(1, n_estimators + 1):
+                model.set_params(n_estimators=i)
+                model.fit(X, y)
                 pbar.update(1)
-
-            with parallel_backend("loky", inner_max_num_threads=1):
-                model.fit(X, y, callback=update)
 
     except Exception as e:
         print(f"[ERROR] Training failed: {e}")
-        # Red progress bar to indicate failure
         with tqdm(total=n_estimators, desc="Training Failed", unit="tree", colour="red") as pbar:
             for _ in range(n_estimators):
                 pbar.update(1)
@@ -92,5 +93,4 @@ if __name__ == "__main__":
     input_csv = sys.argv[3] if len(sys.argv) > 3 else (sys.argv[2] if sys.argv[2].endswith(".csv") else None)
 
     retrain(input_symbol, input_interval, input_csv)
-    print("[INFO] Retraining completed successfully.")
-    
+    print

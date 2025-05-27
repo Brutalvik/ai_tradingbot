@@ -1,0 +1,5 @@
+# Ignore all CSV files in the repository
+*.csv
+ # Ignore all pkl files in the repository
+*.pkl
+
