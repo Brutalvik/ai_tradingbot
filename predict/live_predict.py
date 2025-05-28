@@ -15,8 +15,6 @@ from utils.indicators import add_technical_indicators
 from utils.label_data import clean_data_for_model
 
 from rich.panel import Panel
-from rich.align import Align
-from rich.table import Table
 from rich.text import Text
 from rich.console import Console
 from rich.live import Live
@@ -35,12 +33,13 @@ MIN_BARS_REQUIRED = 30
 console = Console()
 start_time = time.time()
 shutdown_requested = False
+last_signal = None  # Track the last signal to suppress duplicates
 
 class StatusView:
     def __init__(self):
         self.spinner = Spinner("dots")
         self.bar_count = 0
-        self.confidence_text = ""
+        self.confidence_text = "⏳ Waiting for strong signal..."
 
     def set_count(self, count):
         self.bar_count = count
@@ -63,7 +62,7 @@ class StatusView:
 
 status_view = StatusView()
 
-# Add model loading progress BEFORE starting main live display
+# Model loading with progress bar
 with Progress(
     SpinnerColumn(),
     TextColumn("[bold blue]🔄 Loading Models...[/bold blue]"),
@@ -73,23 +72,20 @@ with Progress(
     transient=True
 ) as progress:
     task = progress.add_task("Loading", total=100)
-    for i in range(50):
-        time.sleep(0.01)  # Simulate loading model 1
+    for _ in range(50):
+        time.sleep(0.01)
         progress.advance(task)
-    action_model = joblib.load("models/BTCUSDT_1m_latest_model.pkl")
-    for i in range(50):
-        time.sleep(0.01)  # Simulate loading model 2
+    action_model = joblib.load(MODEL_PATH)
+    for _ in range(50):
+        time.sleep(0.01)
         progress.advance(task)
-    next_close_model = joblib.load("models/next_close_regressor.pkl")
+    next_close_model = joblib.load(REGRESSION_MODEL_PATH)
 
 console.print("✅ Models loaded successfully.")
 
-# Now start live display after loading
+# Start live dashboard
 live = Live(status_view.render(), refresh_per_second=4, console=console)
 live.start()
-
-console.print("✅ Models loaded successfully.")
-
 
 def play_alert():
     try:
@@ -104,9 +100,8 @@ def play_alert():
     except Exception as e:
         console.log(f"[red]Sound alert failed:[/red] {e}")
 
-
-
 def run_prediction(df):
+    global last_signal
     df['returns'] = df['close'].pct_change()
     df['ma5'] = df['close'].rolling(window=5).mean()
     df['ma10'] = df['close'].rolling(window=10).mean()
@@ -127,6 +122,10 @@ def run_prediction(df):
     timestamp = df.iloc[-1]['timestamp']
     current_price = df.iloc[-1]['close']
 
+    if last_signal == (timestamp, action):
+        return
+    last_signal = (timestamp, action)
+
     if confidence >= CONFIDENCE_THRESHOLD:
         signal = "🟢 BUY" if action == 1 else "🔴 SELL"
         console.print(Panel(
@@ -141,7 +140,6 @@ def run_prediction(df):
     else:
         status_view.set_confidence(confidence, timestamp)
 
-
 def signal_handler(sig, frame):
     global shutdown_requested
     shutdown_requested = True
@@ -155,9 +153,7 @@ def signal_handler(sig, frame):
     console.print("✔ Back to shell.")
     exit(0)
 
-
 signal.signal(signal.SIGINT, signal_handler)
-
 
 def main(symbol):
     url = f"{BINANCE_API_URL}?symbol={symbol.upper()}"
@@ -204,7 +200,6 @@ def main(symbol):
         on_close=lambda ws, code, msg: console.print(f"🔌 Connection closed: {msg}")
     )
     ws.run_forever()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
