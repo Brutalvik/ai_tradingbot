@@ -7,15 +7,21 @@ import threading
 import time
 import signal
 import pandas as pd
+import os
 from datetime import datetime
 
 from utils.ohlcv_buffer import OHLCVBuffer
 from utils.indicators import add_technical_indicators
 from utils.label_data import clean_data_for_model
 
-from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, BarColumn, TimeElapsedColumn, SpinnerColumn, TextColumn, MofNCompleteColumn
+from rich.align import Align
+from rich.table import Table
+from rich.text import Text
+from rich.console import Console
+from rich.live import Live
+from rich.spinner import Spinner
+from rich.progress import Progress, BarColumn, TimeElapsedColumn, SpinnerColumn, TextColumn
 from rich import box
 
 # Constants
@@ -27,116 +33,153 @@ CONFIDENCE_THRESHOLD = 0.6
 MIN_BARS_REQUIRED = 30
 
 console = Console()
+start_time = time.time()
+shutdown_requested = False
 
-# Enhanced graphical model loading
+class StatusView:
+    def __init__(self):
+        self.spinner = Spinner("dots")
+        self.bar_count = 0
+        self.confidence_text = ""
+
+    def set_count(self, count):
+        self.bar_count = count
+
+    def set_confidence(self, confidence, timestamp):
+        pct = f"{confidence * 100:.2f}%"
+        self.confidence_text = f"⚠️ Weak signal: {pct} < {CONFIDENCE_THRESHOLD*100:.0f}% at {timestamp}"
+
+    def render(self):
+        elapsed = int(time.time() - start_time)
+        h, m = divmod(elapsed // 60, 60)
+        s = elapsed % 60
+        spinner_frame = self.spinner.frames[int(time.time() * self.spinner.speed) % len(self.spinner.frames)]
+        spinner_line = f"{spinner_frame} 🕑 Bars Formed: {self.bar_count}/{MIN_BARS_REQUIRED}  [Elapsed Time: {h:02}:{m:02}:{s:02}]"
+        progress_bar = "▰" * self.bar_count + "▱" * (MIN_BARS_REQUIRED - self.bar_count)
+        lines = [spinner_line, progress_bar]
+        if self.confidence_text:
+            lines.append(self.confidence_text)
+        return Panel("\n".join(lines), box=box.ROUNDED, padding=(1, 2), title="Live Prediction Status")
+
+status_view = StatusView()
+
+# Add model loading progress BEFORE starting main live display
 with Progress(
-    SpinnerColumn("dots"),
-    TextColumn("{task.description}"),
+    SpinnerColumn(),
+    TextColumn("[bold blue]🔄 Loading Models...[/bold blue]"),
     BarColumn(),
     TimeElapsedColumn(),
-    MofNCompleteColumn()
+    console=console,
+    transient=True
 ) as progress:
-    task_action_model = progress.add_task("🔄 Loading action model", total=100)
-    action_model = joblib.load(MODEL_PATH)
-    for _ in range(100):
-        time.sleep(0.003)
-        progress.advance(task_action_model)
+    task = progress.add_task("Loading", total=100)
+    for i in range(50):
+        time.sleep(0.01)  # Simulate loading model 1
+        progress.advance(task)
+    action_model = joblib.load("models/BTCUSDT_1m_latest_model.pkl")
+    for i in range(50):
+        time.sleep(0.01)  # Simulate loading model 2
+        progress.advance(task)
+    next_close_model = joblib.load("models/next_close_regressor.pkl")
 
-    task_regression_model = progress.add_task("🔄 Loading regression model", total=100)
-    next_close_model = joblib.load(REGRESSION_MODEL_PATH)
-    for _ in range(100):
-        time.sleep(0.003)
-        progress.advance(task_regression_model)
+console.print("✅ Models loaded successfully.")
 
-console.print("[bold green]✅ Models loaded successfully.[/bold green]")
+# Now start live display after loading
+live = Live(status_view.render(), refresh_per_second=4, console=console)
+live.start()
 
-def is_valid_symbol(symbol: str) -> bool:
-    console.print(f"🔍 Validating symbol: [cyan]{symbol.upper()}[/cyan]")
+console.print("✅ Models loaded successfully.")
+
+
+def play_alert():
+    try:
+        if os.name == 'posix':
+            if hasattr(os, "uname") and os.uname().sysname == 'Darwin':
+                os.system("afplay alert.mp3")
+            else:
+                os.system("aplay alert.wav")
+        elif os.name == 'nt':
+            import winsound
+            winsound.PlaySound("alert.wav", winsound.SND_FILENAME)
+    except Exception as e:
+        console.log(f"[red]Sound alert failed:[/red] {e}")
+
+
+
+def run_prediction(df):
+    df['returns'] = df['close'].pct_change()
+    df['ma5'] = df['close'].rolling(window=5).mean()
+    df['ma10'] = df['close'].rolling(window=10).mean()
+    df['return'] = df['close'].pct_change()
+    df['sma'] = df['close'].rolling(window=5).mean()
+    df.dropna(inplace=True)
+
+    clf_features = ['returns', 'ma5', 'ma10']
+    reg_features = ['open', 'high', 'low', 'close', 'volume', 'return', 'sma']
+
+    latest_clf = df[clf_features].tail(1)
+    latest_reg = df[reg_features].tail(1)
+
+    action = action_model.predict(latest_clf)[0]
+    confidence = action_model.predict_proba(latest_clf)[0].max()
+    next_close = next_close_model.predict(latest_reg)[0]
+
+    timestamp = df.iloc[-1]['timestamp']
+    current_price = df.iloc[-1]['close']
+
+    if confidence >= CONFIDENCE_THRESHOLD:
+        signal = "🟢 BUY" if action == 1 else "🔴 SELL"
+        console.print(Panel(
+            f"{signal} SIGNAL\n"
+            f"📈 Price: ${current_price:.2f}\n"
+            f"🔮 Predicted Close: ${next_close:.2f}\n"
+            f"📊 Confidence: {confidence * 100:.2f}%\n"
+            f"📅 Time: {timestamp}",
+            title="Action Signal", box=box.DOUBLE, style="green"
+        ))
+        play_alert()
+    else:
+        status_view.set_confidence(confidence, timestamp)
+
+
+def signal_handler(sig, frame):
+    global shutdown_requested
+    shutdown_requested = True
+    live.update(Panel("🛑 Terminating program...", style="bold red"))
+    time.sleep(0.5)
+    live.update(Panel("🧹 Cleaning up resources...", style="yellow"))
+    time.sleep(0.5)
+    live.update(Panel("👋 Exiting. Goodbye!", style="green"))
+    time.sleep(0.5)
+    live.stop()
+    console.print("✔ Back to shell.")
+    exit(0)
+
+
+signal.signal(signal.SIGINT, signal_handler)
+
+
+def main(symbol):
     url = f"{BINANCE_API_URL}?symbol={symbol.upper()}"
     try:
         response = requests.get(url)
         response.raise_for_status()
-        console.print("[bold green]✅ Symbol validation successful.[/bold green]")
-        return True
+        console.print(f"✅ Symbol {symbol.upper()} validated.")
     except Exception as e:
-        console.print(f"[bold red]❌ Invalid symbol: {symbol.upper()} ({e})[/bold red]")
-        return False
-
-def run_prediction(df):
-    with console.status("🔍 Running prediction..."):
-        # Classifier features
-        df['returns'] = df['close'].pct_change()
-        df['ma5'] = df['close'].rolling(window=5).mean()
-        df['ma10'] = df['close'].rolling(window=10).mean()
-
-        # Regressor features
-        df['return'] = df['close'].pct_change()
-        df['sma'] = df['close'].rolling(window=5).mean()
-
-        df.dropna(inplace=True)
-
-        # Classifier prediction
-        clf_features = ['returns', 'ma5', 'ma10']
-        latest_clf = df[clf_features].tail(1)
-        action = action_model.predict(latest_clf)[0]
-        confidence = action_model.predict_proba(latest_clf)[0].max()
-
-        # Regressor prediction
-        reg_features = ['open', 'high', 'low', 'close', 'volume', 'return', 'sma']
-        latest_reg = df[reg_features].tail(1)
-        next_close = next_close_model.predict(latest_reg)[0]
-
-        current_price = df.iloc[-1]['close']
-        timestamp = df.iloc[-1]['timestamp']
-
-        if confidence >= CONFIDENCE_THRESHOLD:
-            signal = "🟢 BUY" if action == 1 else "🔴 SELL"
-            console.print(Panel(f"""
-{signal} SIGNAL
-📈 Price: ${current_price:.2f}
-📅 Time: {timestamp}
-📊 Confidence: {confidence * 100:.2f}%
-🔮 Predicted Close: ${next_close:.2f}
-📌 Suggested Limit {'Buy' if action == 1 else 'Sell'} at: ${next_close:.2f}
-""", box=box.DOUBLE_EDGE, expand=False))
-        else:
-            console.print(f"❔ Weak signal: {confidence * 100:.2f}% < {CONFIDENCE_THRESHOLD} — {timestamp}")
-
-def start_spinner_with_timer(stop_event, ohlcv_buffer):
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn()
-    ) as progress:
-        task = progress.add_task("🕑 Waiting for OHLCV bars...", total=MIN_BARS_REQUIRED)
-        last_count = 0
-        while not stop_event.is_set():
-            current_count = len(ohlcv_buffer.bars)
-            if current_count != last_count:
-                progress.update(task, completed=current_count)
-                last_count = current_count
-            time.sleep(0.1)
-
-# Signal handler for graceful termination
-def signal_handler(sig, frame):
-    console.print("\n[bold red]🛑 Program terminated by user. Goodbye![/bold red]")
-    exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-
-def main(symbol: str):
-    if not is_valid_symbol(symbol):
+        console.print(f"❌ Invalid symbol: {e}")
         return
 
     ohlcv_buffer = OHLCVBuffer(interval_seconds=INTERVAL)
-    stop_spinner = threading.Event()
-    spinner_thread = threading.Thread(target=start_spinner_with_timer, args=(stop_spinner, ohlcv_buffer))
-    spinner_thread.start()
 
-    def on_message(ws, message):
-        data = json.loads(message)
+    def spinner_loop():
+        while not shutdown_requested:
+            live.update(status_view.render())
+            time.sleep(0.1)
+
+    threading.Thread(target=spinner_loop, daemon=True).start()
+
+    def on_message(ws, msg):
+        data = json.loads(msg)
         if data.get("e") != "trade":
             return
 
@@ -144,15 +187,11 @@ def main(symbol: str):
         volume = float(data['q'])
         timestamp = int(data['T'])
 
-        previous_count = len(ohlcv_buffer.bars)
         ohlcv_buffer.update(price, volume, timestamp)
-        new_count = len(ohlcv_buffer.bars)
+        count = len(ohlcv_buffer.bars)
+        status_view.set_count(count)
 
-        if new_count > previous_count:
-            console.print(f"✅ OHLCV bar formed. Total bars: [green]{new_count}/{MIN_BARS_REQUIRED}[/green]")
-
-        if new_count >= MIN_BARS_REQUIRED:
-            stop_spinner.set()
+        if count >= MIN_BARS_REQUIRED:
             df = ohlcv_buffer.get_dataframe()
             run_prediction(df)
 
@@ -162,12 +201,13 @@ def main(symbol: str):
         on_open=lambda ws: console.print(f"📡 Subscribed to {symbol.upper()}"),
         on_message=on_message,
         on_error=lambda ws, err: console.print(f"❌ WebSocket error: {err}"),
-        on_close=lambda ws, code, msg: console.print(f"🔌 WebSocket closed. Code: {code}, Message: {msg}"),
+        on_close=lambda ws, code, msg: console.print(f"🔌 Connection closed: {msg}")
     )
     ws.run_forever()
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Live Crypto Predictor")
-    parser.add_argument("--symbol", required=True, help="Symbol like BTCUSDT")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--symbol", required=True)
     args = parser.parse_args()
     main(args.symbol.lower())
