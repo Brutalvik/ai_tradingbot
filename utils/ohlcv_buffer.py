@@ -6,48 +6,33 @@ from datetime import datetime, timedelta
 
 class OHLCVBuffer:
     def __init__(self, interval_seconds=60, max_bars=200):
-        self.interval = timedelta(seconds=interval_seconds)
-        self.current_bar = None
-        self.last_timestamp = None
+        self.interval_seconds = interval_seconds
+        self.max_bars = max_bars
         self.bars = deque(maxlen=max_bars)
+        self.current_bar = None
+        self.current_bar_start = None
 
-    def update(self, tick_price, tick_volume, tick_time):
-        tick_dt = datetime.fromtimestamp(tick_time / 1000)
-        bar_time = tick_dt.replace(second=0, microsecond=0)
+    def update(self, price, volume, timestamp):
+        ts_dt = datetime.fromtimestamp(timestamp / 1000)
+        ts_start = ts_dt.replace(second=0, microsecond=0)
 
-        if self.last_timestamp is None:
-            self.last_timestamp = bar_time
-
-        # Start a new bar
-        if bar_time > self.last_timestamp:
+        if not self.current_bar or ts_start != self.current_bar_start:
             if self.current_bar:
                 self.bars.append(self.current_bar)
-            self.last_timestamp = bar_time
+            self.current_bar_start = ts_start
             self.current_bar = {
-                "timestamp": self.last_timestamp,
-                "open": tick_price,
-                "high": tick_price,
-                "low": tick_price,
-                "close": tick_price,
-                "volume": tick_volume,
+                'timestamp': ts_start,
+                'open': price,
+                'high': price,
+                'low': price,
+                'close': price,
+                'volume': volume
             }
         else:
-            # Update current bar
-            if not self.current_bar:
-                self.current_bar = {
-                    "timestamp": self.last_timestamp,
-                    "open": tick_price,
-                    "high": tick_price,
-                    "low": tick_price,
-                    "close": tick_price,
-                    "volume": tick_volume,
-                }
-            else:
-                self.current_bar["high"] = max(self.current_bar["high"], tick_price)
-                self.current_bar["low"] = min(self.current_bar["low"], tick_price)
-                self.current_bar["close"] = tick_price
-                self.current_bar["volume"] += tick_volume
-
+            self.current_bar['high'] = max(self.current_bar['high'], price)
+            self.current_bar['low'] = min(self.current_bar['low'], price)
+            self.current_bar['close'] = price
+            self.current_bar['volume'] += volume
 
     def get_dataframe(self):
-        return pd.DataFrame(self.bars)
+        return pd.DataFrame(list(self.bars))
