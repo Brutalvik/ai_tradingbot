@@ -13,13 +13,16 @@ class OHLCVBuffer:
 
     def update(self, tick_price, tick_volume, tick_time):
         tick_dt = datetime.fromtimestamp(tick_time / 1000)
+        bar_time = tick_dt.replace(second=0, microsecond=0)
+
+        if self.last_timestamp is None:
+            self.last_timestamp = bar_time
 
         # Start a new bar
-        if self.current_bar is None or tick_dt >= self.last_timestamp + self.interval:
+        if bar_time > self.last_timestamp:
             if self.current_bar:
                 self.bars.append(self.current_bar)
-
-            self.last_timestamp = tick_dt.replace(second=0, microsecond=0)
+            self.last_timestamp = bar_time
             self.current_bar = {
                 "timestamp": self.last_timestamp,
                 "open": tick_price,
@@ -30,10 +33,21 @@ class OHLCVBuffer:
             }
         else:
             # Update current bar
-            self.current_bar["high"] = max(self.current_bar["high"], tick_price)
-            self.current_bar["low"] = min(self.current_bar["low"], tick_price)
-            self.current_bar["close"] = tick_price
-            self.current_bar["volume"] += tick_volume
+            if not self.current_bar:
+                self.current_bar = {
+                    "timestamp": self.last_timestamp,
+                    "open": tick_price,
+                    "high": tick_price,
+                    "low": tick_price,
+                    "close": tick_price,
+                    "volume": tick_volume,
+                }
+            else:
+                self.current_bar["high"] = max(self.current_bar["high"], tick_price)
+                self.current_bar["low"] = min(self.current_bar["low"], tick_price)
+                self.current_bar["close"] = tick_price
+                self.current_bar["volume"] += tick_volume
+
 
     def get_dataframe(self):
         return pd.DataFrame(self.bars)
